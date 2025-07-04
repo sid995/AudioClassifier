@@ -15,6 +15,7 @@ from model import AudioCNN
 
 app = modal.App("audio-cnn-inference")
 
+
 image = (
     modal.Image.debian_slim()
     .pip_install_from_requirements("requirements.txt")
@@ -29,7 +30,7 @@ class AudioProcessor:
     def __init__(self):
         self.transform = nn.Sequential(
             T.MelSpectrogram(
-                sample_rate=22050,
+                sample_rate=44100,
                 n_fft=1024,
                 hop_length=512,
                 n_mels=128,
@@ -124,6 +125,8 @@ class AudioClassifier:
             clean_spectrogram = np.nan_to_num(spectrogram_np)
 
             max_samples = 8000
+            waveform_sample_rate = 44100
+
             if len(audio_data) > max_samples:
                 step = len(audio_data) // max_samples
                 waveform_data = audio_data[::step]
@@ -139,8 +142,8 @@ class AudioClassifier:
             },
             "waveform": {
                 "values": waveform_data.tolist(),
-                "sample_rate": 22050,
-                "duration": len(audio_data) / 22050,
+                "sample_rate": waveform_sample_rate,
+                "duration": len(audio_data) / waveform_sample_rate,
             },
         }
 
@@ -150,24 +153,30 @@ class AudioClassifier:
 @app.local_entrypoint()
 def main():
     audio_data, sample_rate = sf.read("sample_audio/chirping-birds.wav")
+
     buffer = io.BytesIO()
-    sf.write(buffer, audio_data, 22050, format="WAV")
-    audio_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
-    payload = {"audio_data": audio_base64}
+    sf.write(buffer, audio_data, sample_rate, format="WAV")
+    audio_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    payload = {"audio_data": audio_b64}
+
     server = AudioClassifier()
     url = server.inference.get_web_url()
+
     if url is not None:
         response = requests.post(url, json=payload)
     else:
         raise ValueError("Inference endpoint URL is None.")
+
     response.raise_for_status()
 
     result = response.json()
+
     waveform_info = result.get("waveform", {})
     if waveform_info:
         values = waveform_info.get("values", {})
         print(f"First 10 values: {[round(v, 4) for v in values[:10]]}...")
         print(f"Duration: {waveform_info.get('duration', 0)}")
+
     print("Top predictions:")
     for pred in result.get("predictions", []):
-        print(f" -{pred['class']} {pred['confidence']:0.2%}")
+        print(f"  -{pred['class']} {pred['confidence']:0.2%}")

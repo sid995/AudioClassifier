@@ -17,17 +17,21 @@ from model import AudioCNN
 
 app = modal.App("audio-cnn")
 
-image = (modal.Image.debian_slim()
-         .pip_install_from_requirements("requirements.txt")
-         .apt_install(["wget", "unzip", "ffmpeg", "libsndfile1"])
-         .run_commands([
-             "cd /tmp && wget https://github.com/karolpiczak/ESC-50/archive/master.zip -O esc50.zip",
-             "cd /tmp && unzip esc50.zip",
-             "mkdir -p /opt/esc50-data",
-             "cp -r /tmp/ESC-50-master/* /opt/esc50-data/",
-             "rm -rf /tmp/ESC-50-master /tmp/esc50.zip"
-         ])
-         .add_local_python_source("model"))
+image = (
+    modal.Image.debian_slim()
+    .pip_install_from_requirements("requirements.txt")
+    .apt_install(["wget", "unzip", "ffmpeg", "libsndfile1"])
+    .run_commands(
+        [
+            "cd /tmp && wget https://github.com/karolpiczak/ESC-50/archive/master.zip -O esc50.zip",
+            "cd /tmp && unzip esc50.zip",
+            "mkdir -p /opt/esc50-data",
+            "cp -r /tmp/ESC-50-master/* /opt/esc50-data/",
+            "rm -rf /tmp/ESC-50-master /tmp/esc50.zip",
+        ]
+    )
+    .add_local_python_source("model")
+)
 
 volume = modal.Volume.from_name("esc50-data", create_if_missing=True)
 model_volume = modal.Volume.from_name("esc-model", create_if_missing=True)
@@ -48,8 +52,7 @@ class ESC50Dataset(Dataset):
 
         self.classes = sorted(self.metadata["category"].unique())
         self.class_to_idx = {cls: idx for idx, cls in enumerate(self.classes)}
-        self.metadata["label"] = self.metadata["category"].map(
-            self.class_to_idx)
+        self.metadata["label"] = self.metadata["category"].map(self.class_to_idx)
 
     def __len__(self):
         # Override the length method to return the length of metadata
@@ -91,9 +94,15 @@ def mixup_criterion(criterion, pred, y_a, y_b, lam):
     return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
 
-@app.function(image=image, gpu="A10G", volumes={"/data": volume, "/models": model_volume}, timeout=60 * 60 * 3)
+@app.function(
+    image=image,
+    gpu="A10G",
+    volumes={"/data": volume, "/models": model_volume},
+    timeout=60 * 60 * 3,
+)
 def train():
     from datetime import datetime
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_dir = f"/models/tensorboard_logs/run_{timestamp}"
     writer = SummaryWriter(log_dir)
@@ -103,7 +112,7 @@ def train():
 
     train_transform = nn.Sequential(
         T.MelSpectrogram(
-            sample_rate=22050,
+            sample_rate=44100,
             n_fft=1024,
             hop_length=512,
             n_mels=64,
@@ -117,7 +126,7 @@ def train():
 
     val_transform = nn.Sequential(
         T.MelSpectrogram(
-            sample_rate=22050,
+            sample_rate=44100,
             n_fft=1024,
             hop_length=512,
             n_mels=64,
@@ -128,10 +137,18 @@ def train():
     )
 
     train_dataset = ESC50Dataset(
-        data_dir=esc50_dir, metadata_file=esc50_dir / "meta" / "esc50.csv", split="train", transform=train_transform)
+        data_dir=esc50_dir,
+        metadata_file=esc50_dir / "meta" / "esc50.csv",
+        split="train",
+        transform=train_transform,
+    )
 
     val_dataset = ESC50Dataset(
-        data_dir=esc50_dir, metadata_file=esc50_dir / "meta" / "esc50.csv", split="test", transform=val_transform)
+        data_dir=esc50_dir,
+        metadata_file=esc50_dir / "meta" / "esc50.csv",
+        split="test",
+        transform=val_transform,
+    )
 
     print(f"Training samples: {len(train_dataset)}")
     print(f"Validation samples: {len(val_dataset)}")
@@ -150,7 +167,7 @@ def train():
         max_lr=0.002,
         epochs=num_epochs,
         steps_per_epoch=len(train_dataloader),
-        pct_start=0.1
+        pct_start=0.1,
     )
 
     best_accuracy = 0.0
@@ -159,8 +176,7 @@ def train():
         model.train()
         epoch_loss = 0.0
 
-        progress_bar = tqdm(
-            train_dataloader, desc=f"Epoch {epoch + 1}/{num_epochs}")
+        progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{num_epochs}")
         for data, target in progress_bar:
             data, target = data.to(device), target.to(device)
             if np.random.random() > 0.7:
@@ -171,7 +187,7 @@ def train():
                     pred=output,
                     y_a=target_a,
                     y_b=target_b,
-                    lam=lam
+                    lam=lam,
                 )
             else:
                 output = model(data)
@@ -187,8 +203,7 @@ def train():
 
         avg_epoch_loss = epoch_loss / len(train_dataloader)
         writer.add_scalar("Loss/Train", avg_epoch_loss, epoch)
-        writer.add_scalar(
-            "Learning_Rate", optimizer.param_groups[0]['lr'], epoch)
+        writer.add_scalar("Learning_Rate", optimizer.param_groups[0]["lr"], epoch)
 
         # validation after each epoch
         model.eval()
@@ -207,22 +222,25 @@ def train():
                 total += target.size(0)
                 correct += (predicted == target).sum().item()
         accuracy = 100 * correct / total
-        avg_val_loss = val_loss / len(test_dataloader
-                                      )
+        avg_val_loss = val_loss / len(test_dataloader)
         writer.add_scalar("Loss/Validation", avg_val_loss, epoch)
         writer.add_scalar("Accuracy/Validation", accuracy, epoch)
 
         print(
-            f"Epoch: {epoch + 1} Loss: {avg_epoch_loss:.4f}, Val Loss: {avg_val_loss:.4f}, Accuracy: {accuracy:.2f}%")
+            f"Epoch: {epoch + 1} Loss: {avg_epoch_loss:.4f}, Val Loss: {avg_val_loss:.4f}, Accuracy: {accuracy:.2f}%"
+        )
 
         if accuracy > best_accuracy:
             best_accuracy = accuracy
-            torch.save({
-                "model_state_dict": model.state_dict(),
-                "accuracy": accuracy,
-                "epoch": epoch,
-                "classes": train_dataset.classes
-            }, "/models/best_model.pth")
+            torch.save(
+                {
+                    "model_state_dict": model.state_dict(),
+                    "accuracy": accuracy,
+                    "epoch": epoch,
+                    "classes": train_dataset.classes,
+                },
+                "/models/best_model.pth",
+            )
             print(f"New best model saved: {accuracy:.2f}%")
 
     writer.close()
