@@ -1,0 +1,1 @@
+- [ ] for production: frontend -> upload file to s3 -> inference endpoint -> download from s3 bucket
