@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Button } from "~/components/ui/button";
+import { Badge } from "~/components/ui/badge";
+import { Card, CardContent } from "~/components/ui/card";
 
 interface Prediction {
   class: string;
@@ -91,7 +93,7 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [vizData, setVizData] = useState<null>(null);
+  const [vizData, setVizData] = useState<ApiResponse | null>(null);
 
   const handleFileChange = async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -105,30 +107,45 @@ export default function HomePage() {
 
     const reader = new FileReader();
     reader.readAsArrayBuffer(file);
+
     reader.onload = async () => {
-      const arrayBuffer = reader.result as ArrayBuffer;
-      const base64String = btoa(
-        new Uint8Array(arrayBuffer).reduce(
-          (data, byte) => data + String.fromCharCode(byte),
-          "",
-        ),
-      );
-      const response = await fetch(
-        process.env.NEXT_PUBLIC_INFERENCE_ENDPOINT_URL!,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+      try {
+        const arrayBuffer = reader.result as ArrayBuffer;
+        const base64String = btoa(
+          new Uint8Array(arrayBuffer).reduce(
+            (data, byte) => data + String.fromCharCode(byte),
+            "",
+          ),
+        );
+        const response = await fetch(
+          process.env.NEXT_PUBLIC_INFERENCE_ENDPOINT_URL!,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ audio_data: base64String }),
           },
-          body: JSON.stringify({ audio_data: base64String }),
-        },
-      );
+        );
 
-      if (!response.ok) {
-        throw new Error(`API Error ${response.statusText}`);
+        if (!response.ok) {
+          throw new Error(`API Error ${response.statusText}`);
+        }
+
+        const data: ApiResponse = await response.json();
+        setVizData(data);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "An unknown error occured",
+        );
+      } finally {
+        setIsLoading(false);
       }
+    };
 
-      const data: ApiResponse = await response.json();
+    reader.onerror = () => {
+      setError("Failed to read file");
+      setIsLoading(false);
     };
   };
 
@@ -149,13 +166,30 @@ export default function HomePage() {
                 accept=".wav"
                 id="file-upload"
                 className="absolute inset-0 w-full cursor-pointer opacity-0"
+                onChange={handleFileChange}
+                disabled={isLoading}
               />
               <Button className="border-stone-300" variant="outline" size="lg">
                 {isLoading ? "Analysing..." : "Choose file"}
               </Button>
             </div>
+            {fileName && (
+              <Badge
+                variant="secondary"
+                className="mt-4 bg-stone-200 text-stone-700"
+              >
+                {fileName}
+              </Badge>
+            )}
           </div>
         </div>
+        {error && (
+          <Card className="mb-8 border-red-200 bg-red-50">
+            <CardContent>
+              <p className="text-red-600">Error: {error}</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </main>
   );
