@@ -90,7 +90,7 @@ const ESC50_EMOJI_MAP: Record<string, string> = {
 };
 
 const getEmojiForClass = (className: string): string => {
-  return ESC50_EMOJI_MAP[className] || "🔈";
+  return ESC50_EMOJI_MAP[className] ?? "🔈";
 };
 
 type LayerDataArray = [string, LayerData][];
@@ -186,7 +186,7 @@ export default function HomePage() {
             CNN Audio Visualizer
           </h1>
           <p className="text-md mb-8 text-stone-600">
-            Upload a WAV file to see the model's prediction and feature map
+            Upload a WAV file to see the model&apos;s prediction and feature map
           </p>
           <div className="flex flex-col items-center">
             <div className="relative inline-block">
